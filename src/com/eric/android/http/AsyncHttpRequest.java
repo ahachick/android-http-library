@@ -1,6 +1,7 @@
 package com.eric.android.http;
 
 import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -12,10 +13,12 @@ import java.net.URL;
 import java.net.UnknownHostException;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
 
-public class AsyncHttpResquest implements Runnable {
+public class AsyncHttpRequest implements Runnable {
 
-	private static final String TAG = AsyncHttpResquest.class.getSimpleName();
+	private static final String TAG = AsyncHttpRequest.class.getSimpleName();
 
 	public static final int GET = 1;
 	public static final int POST = 2;
@@ -27,42 +30,45 @@ public class AsyncHttpResquest implements Runnable {
 	private int mRequestType;
 
 	private static final int DEFAULT_RETRY_COUNT = 3;
-	private static final int DEFAULT_SOCKET_TIMEOUT = 16 * 1000;
-
+	private static final int DEFAULT_SOCKET_TIMEOUT = 15 * 1000;
+	private static final int DEFAULT_READ_TIMEOUT = 60 * 1000;
+	
 	private int mSocketTimeout = DEFAULT_SOCKET_TIMEOUT;
+	private int mReadTimeout = DEFAULT_READ_TIMEOUT;
 	private int mRetryCount = DEFAULT_RETRY_COUNT;
 	private boolean isCancelled = false;
 	private boolean isFinished = false;
-	private ResponseHandlerInferface mResponseHandler;
-	private HashMap<String, String> mRequestParams;
-	private HashMap<String, List<String>> mHeaders;
+	private ResponseHandlerInterface mResponseHandler;
+	private Map<String, String> mRequestParams;
+	private Map<String, List<String>> mHeaders;
 
-	private static final HashMap<String, List<String>> DEFAULT_HEADERS;
+	private static final Map<String, List<String>> DEFAULT_HEADERS;
 
 	static {
 		DEFAULT_HEADERS = new HashMap<String, List<String>>();
 		// add some header
+		
 	}
 
-	public AsyncHttpResquest(URI uri, int requestType,
-			ResponseHandlerInferface rh) {
+	public AsyncHttpRequest(URI uri, int requestType,
+			ResponseHandlerInterface rh) {
 		init(uri, requestType, rh, null, null);
 	}
 
-	public AsyncHttpResquest(URI uri, int requestType,
-			ResponseHandlerInferface rh, HashMap<String, String> requestParams) {
+	public AsyncHttpRequest(URI uri, int requestType,
+			ResponseHandlerInterface rh, Map<String, String> requestParams) {
 		init(uri, requestType, rh, requestParams, null);
 	}
 
-	public AsyncHttpResquest(URI uri, int requestType,
-			ResponseHandlerInferface rh, HashMap<String, String> requestParams,
-			HashMap<String, List<String>> headers) {
+	public AsyncHttpRequest(URI uri, int requestType,
+			ResponseHandlerInterface rh, Map<String, String> requestParams,
+			Map<String, List<String>> headers) {
 		init(uri, requestType, rh, requestParams, headers);
 	}
 
-	private void init(URI uri, int requestType, ResponseHandlerInferface rh,
-			HashMap<String, String> requestParams,
-			HashMap<String, List<String>> headers) {
+	private void init(URI uri, int requestType, ResponseHandlerInterface rh,
+			Map<String, String> requestParams,
+			Map<String, List<String>> headers) {
 
 		mUri = uri;
 		mRequestType = requestType;
@@ -71,20 +77,61 @@ public class AsyncHttpResquest implements Runnable {
 		mHeaders = (headers == null) ? headers : DEFAULT_HEADERS;
 
 	}
+	
+	@Override
+	public void run() {
+		
+		if(isCancelled())
+			return;
+		
+		if(mResponseHandler != null){
+			mResponseHandler.sendStartMessage();
+		}
+		
+		if(isCancelled())
+			return;
+		
+		try {
+			makeRequestWithRetries();
+		} catch (IOException e) {
+			
+			if(!isCancelled() && mResponseHandler != null) {
+				mResponseHandler.sendFailureMessage(0, null, null, e);
+			}
+			e.printStackTrace();
+		}
+		
+		if(isCancelled())
+			return;
+
+		if(mResponseHandler != null) {
+			mResponseHandler.sendFinishMessage();
+		}
+		
+		isFinished = true;
+	}
+	
+	public String paramsToString(Map<String,String> params) {
+		
+		StringBuilder sb = new StringBuilder();
+		for(Entry<String, String> entry : params.entrySet()) {
+			sb.append(entry.getKey()).append("=").append(entry.getValue()).append("&");
+		}
+		
+		return sb.toString().substring(0, sb.length() - 1);
+		
+		
+	}
 
 	private void makeRequest() throws IOException {
 		HttpURLConnection conn = null;
-		BufferedInputStream input = null;
+
+		
 
 		try {
 			URL url = mUri.toURL();
-
 			conn = (HttpURLConnection) url.openConnection();
-			if (POST == mRequestType) {
-				conn.setDoOutput(true);
-				//
-			}
-
+			
 			if (mHeaders != null) {
 				for (String key : mHeaders.keySet()) {
 					for (String value : mHeaders.get(key))
@@ -92,13 +139,27 @@ public class AsyncHttpResquest implements Runnable {
 				}
 			}
 			// set socket timeout;
-			conn.setReadTimeout(mSocketTimeout);
+			conn.setConnectTimeout(mSocketTimeout);
+			// set read timeout
+			conn.setReadTimeout(mReadTimeout);
 			// disable http cache;
-			conn.setUseCaches(false);
+			conn.setUseCaches(false);	
 
-			input = new BufferedInputStream(conn.getInputStream());
+			if (POST == mRequestType) {
+				conn.setDoOutput(true);
+				byte[] requestBody = paramsToString(mRequestParams).getBytes();
+				conn.setFixedLengthStreamingMode(requestBody.length);
+				
+				BufferedOutputStream output = 
+						new BufferedOutputStream(conn.getOutputStream());
+				output.write(requestBody);
+				output.flush();
+				output.close();
+			}
+			BufferedInputStream input = 
+					new BufferedInputStream(conn.getInputStream());
 			byte[] body = readStream(input);
-			
+			input.close();
 			if(mResponseHandler != null) {
 				int statusCode = conn.getResponseCode();
 				mResponseHandler.sendResponseMessage(statusCode, conn.getHeaderFields(), body);
@@ -113,13 +174,13 @@ public class AsyncHttpResquest implements Runnable {
 				conn.disconnect();
 			}
 
-			if (null != input) {
+			/*if (null != input) {
 				try {
 					input.close();
 				} catch (Exception e) {
 					e.printStackTrace();
 				}
-			}
+			}*/
 		}
 	}
 
@@ -174,38 +235,10 @@ public class AsyncHttpResquest implements Runnable {
 		}
 	}
 
-	@Override
-	public void run() {
-		
-		if(isCancelled())
-			return;
-		
-		if(mResponseHandler != null){
-			mResponseHandler.sendStartMessage();
-		}
-		
-		if(isCancelled())
-			return;
-		
-		try {
-			makeRequestWithRetries();
-		} catch (IOException e) {
-			
-			if(!isCancelled() && mResponseHandler != null) {
-				mResponseHandler.sendFailureMessage(0, null, null, e);
-			}
-			e.printStackTrace();
-		}
-		
-		if(isCancelled())
-			return;
-
-		if(mResponseHandler != null) {
-			mResponseHandler.sendFinishedMessage();
-		}
-		
-		isFinished = true;
+	public boolean isDone() {
+		return isCancelled || isFinished;
 	}
+
 
 	private byte[] readStream(InputStream in) throws IOException {
 		ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -223,4 +256,5 @@ public class AsyncHttpResquest implements Runnable {
 
 	}
 
+	
 }
