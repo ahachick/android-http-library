@@ -4,9 +4,12 @@ import java.net.URI;
 import java.util.List;
 import java.util.Map;
 
+import com.eric.android.util.Logger;
+
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
+import android.util.Log;
 
 public abstract class AbstractResponseHandler 
 					implements ResponseHandlerInterface{
@@ -25,7 +28,9 @@ public abstract class AbstractResponseHandler
 	private Handler mHandler;
 	private Map<String, List<String>> mHeaders;
 	
+	
 	public AbstractResponseHandler() {
+		
 		mHandler = new InternalHandler(this);
 		
 		postRunnable(null);
@@ -115,17 +120,22 @@ public abstract class AbstractResponseHandler
 		private AbstractResponseHandler mResponse;
 		
 		public InternalHandler(AbstractResponseHandler response) {
-			response = mResponse;
+			mResponse = response;
 		}
 		
 		@Override
 		public void handleMessage(Message msg) {
-			mResponse.handleResponseMessage(msg);
+			if(null != mResponse) {
+				mResponse.handleResponseMessage(msg);
+			}
+			
 		}
 	}
 
 	@SuppressWarnings("unchecked")
 	public void handleResponseMessage(Message msg) {
+		
+		Log.d(TAG, "MessageNo:" + msg.what);
 		
 		Object[] objs = null;
 		switch(msg.what) {
@@ -134,6 +144,7 @@ public abstract class AbstractResponseHandler
 			break;
 		case FINISH_MESSAGE :
 			onFinish();
+			break;
 		case SUCCESS_MESSAGE :
 			objs = (Object[]) msg.obj;
 			onSuccess((Integer)objs[0],(Map<String, List<String>>)objs[1], (byte[])objs[2]);

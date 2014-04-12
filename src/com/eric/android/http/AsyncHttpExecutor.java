@@ -19,6 +19,7 @@ public class AsyncHttpExecutor {
 	private AsyncHttpExecutor() {
 		init();
 	}
+	
 
 	private void init() {
 		mThreadPool = Executors.newCachedThreadPool();

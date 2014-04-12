@@ -16,6 +16,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 
+import com.eric.android.util.Logger;
+
 public class AsyncHttpRequest implements Runnable {
 
 	private static final String TAG = AsyncHttpRequest.class.getSimpleName();
@@ -158,7 +160,11 @@ public class AsyncHttpRequest implements Runnable {
 			}
 			BufferedInputStream input = 
 					new BufferedInputStream(conn.getInputStream());
+			
+			Logger.debug(TAG, "ContentLength:" + conn.getContentLength());
+			
 			byte[] body = readStream(input);
+			
 			input.close();
 			if(mResponseHandler != null) {
 				int statusCode = conn.getResponseCode();
@@ -192,7 +198,7 @@ public class AsyncHttpRequest implements Runnable {
 
 		try {
 
-			while (retryCount == mRetryCount) {
+			while (retryCount != mRetryCount) {
 				try {
 					makeRequest();
 					return;
