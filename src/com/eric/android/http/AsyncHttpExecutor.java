@@ -1,8 +1,10 @@
 package com.eric.android.http;
 
+import java.io.UnsupportedEncodingException;
 import java.net.URI;
-import java.util.HashMap;
+import java.net.URLEncoder;
 import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -19,7 +21,6 @@ public class AsyncHttpExecutor {
 	private AsyncHttpExecutor() {
 		init();
 	}
-	
 
 	private void init() {
 		mThreadPool = Executors.newCachedThreadPool();
@@ -32,45 +33,74 @@ public class AsyncHttpExecutor {
 
 		return sInstance;
 	}
+	
+	private URI buildURI(String uriStr) {
+		return buildURI(uriStr, null);
+	}
+
+	private URI buildURI(String uriStr, Map<String, Object> params){
+
+		if (params != null) {
+			StringBuilder sb = new StringBuilder(uriStr);
+
+			sb.append((!uriStr.contains("?")) ? '?' : '&');
+
+			for (Entry<String, Object> entry : params.entrySet()) {
+				
+				try {
+				sb.append(URLEncoder.encode(entry.getKey().toString(),"UTF-8"))
+					.append('=')
+					.append(URLEncoder.encode(entry.getValue().toString(),"UTF-8"))
+					.append('&');
+				} catch(UnsupportedEncodingException ex){
+					ex.printStackTrace();
+				}
+			}
+
+			return URI.create(sb.toString().substring(0, sb.length() - 1));
+		}
+
+
+			return URI.create(uriStr);
+	}
 
 	public void get(String uri, ResponseHandlerInterface rhi) {
 		get(uri, rhi, null, null);
 	}
 
 	public void get(String uri, ResponseHandlerInterface rhi,
-			HashMap<String, String> params) {
+			Map<String, Object> params) {
 		get(uri, rhi, params, null);
 	}
 
 	public void get(String uriStr, ResponseHandlerInterface rhi,
-			HashMap<String, String> params,
-			HashMap<String, List<String>> headers) {
+			Map<String, Object> params,
+			Map<String, List<String>> headers) {
 
-		URI uri = buildGetURI(uriStr, params);
+		URI uri = buildURI(uriStr, params);
 		AsyncHttpRequest request = new AsyncHttpRequest(uri,
-				AsyncHttpRequest.GET, rhi);
+				AsyncHttpRequest.GET, rhi, params, headers);
 		mThreadPool.execute(request);
 	}
 
-	public void post() {
-
+	public void post(String uriStr, ResponseHandlerInterface rhi) {
+		post(uriStr, rhi, null, null);
 	}
 
-	private URI buildGetURI(String uriStr, HashMap<String, String> params) {
-
-		if (params != null) {
-			StringBuilder sb = new StringBuilder(uriStr);
-
-			sb.append((uriStr.contains("?")) ? '?' : '&');
-
-			for (Entry<String, String> entry : params.entrySet()) {
-				sb.append(entry.getKey()).append('=').append(entry.getValue())
-						.append('=');
-			}
-
-			return URI.create(sb.toString().substring(0, sb.length() - 1));
-		}
-
-		return URI.create(uriStr);
+	public void post(String uriStr, ResponseHandlerInterface rhi,
+			Map<String, Object> params) {
+		post(uriStr, rhi, params, null);
 	}
+
+	public void post(String uriStr, ResponseHandlerInterface rhi,
+			Map<String, Object> params,
+			Map<String, List<String>> headers) {
+		
+		URI uri = buildURI(uriStr);
+		AsyncHttpRequest request = new AsyncHttpRequest(uri,
+				AsyncHttpRequest.POST, rhi, params, headers);
+		mThreadPool.execute(request);
+	}
+
+	
 }

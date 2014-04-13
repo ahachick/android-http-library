@@ -5,11 +5,13 @@ import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UnsupportedEncodingException;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.net.UnknownHostException;
 import java.util.HashMap;
 import java.util.List;
@@ -34,14 +36,14 @@ public class AsyncHttpRequest implements Runnable {
 	private static final int DEFAULT_RETRY_COUNT = 3;
 	private static final int DEFAULT_SOCKET_TIMEOUT = 15 * 1000;
 	private static final int DEFAULT_READ_TIMEOUT = 60 * 1000;
-	
+
 	private int mSocketTimeout = DEFAULT_SOCKET_TIMEOUT;
 	private int mReadTimeout = DEFAULT_READ_TIMEOUT;
 	private int mRetryCount = DEFAULT_RETRY_COUNT;
 	private boolean isCancelled = false;
 	private boolean isFinished = false;
 	private ResponseHandlerInterface mResponseHandler;
-	private Map<String, String> mRequestParams;
+	private Map<String, Object> mRequestParams;
 	private Map<String, List<String>> mHeaders;
 
 	private static final Map<String, List<String>> DEFAULT_HEADERS;
@@ -49,7 +51,7 @@ public class AsyncHttpRequest implements Runnable {
 	static {
 		DEFAULT_HEADERS = new HashMap<String, List<String>>();
 		// add some header
-		
+
 	}
 
 	public AsyncHttpRequest(URI uri, int requestType,
@@ -58,19 +60,18 @@ public class AsyncHttpRequest implements Runnable {
 	}
 
 	public AsyncHttpRequest(URI uri, int requestType,
-			ResponseHandlerInterface rh, Map<String, String> requestParams) {
+			ResponseHandlerInterface rh, Map<String, Object> requestParams) {
 		init(uri, requestType, rh, requestParams, null);
 	}
 
 	public AsyncHttpRequest(URI uri, int requestType,
-			ResponseHandlerInterface rh, Map<String, String> requestParams,
+			ResponseHandlerInterface rh, Map<String, Object> requestParams,
 			Map<String, List<String>> headers) {
 		init(uri, requestType, rh, requestParams, headers);
 	}
 
 	private void init(URI uri, int requestType, ResponseHandlerInterface rh,
-			Map<String, String> requestParams,
-			Map<String, List<String>> headers) {
+			Map<String, Object> requestParams, Map<String, List<String>> headers) {
 
 		mUri = uri;
 		mRequestType = requestType;
@@ -79,61 +80,48 @@ public class AsyncHttpRequest implements Runnable {
 		mHeaders = (headers == null) ? headers : DEFAULT_HEADERS;
 
 	}
-	
+
 	@Override
 	public void run() {
-		
-		if(isCancelled())
+
+		if (isCancelled())
 			return;
-		
-		if(mResponseHandler != null){
+
+		if (mResponseHandler != null) {
 			mResponseHandler.sendStartMessage();
 		}
-		
-		if(isCancelled())
+
+		if (isCancelled())
 			return;
-		
+
 		try {
 			makeRequestWithRetries();
 		} catch (IOException e) {
-			
-			if(!isCancelled() && mResponseHandler != null) {
+
+			if (!isCancelled() && mResponseHandler != null) {
 				mResponseHandler.sendFailureMessage(0, null, null, e);
 			}
 			e.printStackTrace();
 		}
-		
-		if(isCancelled())
+
+		if (isCancelled())
 			return;
 
-		if(mResponseHandler != null) {
+		if (mResponseHandler != null) {
 			mResponseHandler.sendFinishMessage();
 		}
-		
+
 		isFinished = true;
-	}
-	
-	public String paramsToString(Map<String,String> params) {
-		
-		StringBuilder sb = new StringBuilder();
-		for(Entry<String, String> entry : params.entrySet()) {
-			sb.append(entry.getKey()).append("=").append(entry.getValue()).append("&");
-		}
-		
-		return sb.toString().substring(0, sb.length() - 1);
-		
-		
 	}
 
 	private void makeRequest() throws IOException {
 		HttpURLConnection conn = null;
 
-		
-
 		try {
 			URL url = mUri.toURL();
+			Logger.debug(TAG, "URI:" + url.toString());
 			conn = (HttpURLConnection) url.openConnection();
-			
+
 			if (mHeaders != null) {
 				for (String key : mHeaders.keySet()) {
 					for (String value : mHeaders.get(key))
@@ -145,32 +133,35 @@ public class AsyncHttpRequest implements Runnable {
 			// set read timeout
 			conn.setReadTimeout(mReadTimeout);
 			// disable http cache;
-			conn.setUseCaches(false);	
+			conn.setUseCaches(false);
 
 			if (POST == mRequestType) {
 				conn.setDoOutput(true);
-				byte[] requestBody = paramsToString(mRequestParams).getBytes();
+				byte[] requestBody = mRequestParams == null ? new byte[] {}
+						: paramsToString(mRequestParams).getBytes();
 				conn.setFixedLengthStreamingMode(requestBody.length);
-				
-				BufferedOutputStream output = 
-						new BufferedOutputStream(conn.getOutputStream());
+
+				BufferedOutputStream output = new BufferedOutputStream(
+						conn.getOutputStream());
 				output.write(requestBody);
 				output.flush();
 				output.close();
 			}
-			BufferedInputStream input = 
-					new BufferedInputStream(conn.getInputStream());
 			
 			Logger.debug(TAG, "ContentLength:" + conn.getContentLength());
 			
+			BufferedInputStream input = new BufferedInputStream(
+					conn.getInputStream());
+
 			byte[] body = readStream(input);
-			
+
 			input.close();
-			if(mResponseHandler != null) {
+			if (mResponseHandler != null) {
 				int statusCode = conn.getResponseCode();
-				mResponseHandler.sendResponseMessage(statusCode, conn.getHeaderFields(), body);
+				mResponseHandler.sendResponseMessage(statusCode,
+						conn.getHeaderFields(), body);
 			}
-			
+
 			return;
 
 		} catch (MalformedURLException e) {
@@ -180,13 +171,10 @@ public class AsyncHttpRequest implements Runnable {
 				conn.disconnect();
 			}
 
-			/*if (null != input) {
-				try {
-					input.close();
-				} catch (Exception e) {
-					e.printStackTrace();
-				}
-			}*/
+			/*
+			 * if (null != input) { try { input.close(); } catch (Exception e) {
+			 * e.printStackTrace(); } }
+			 */
 		}
 	}
 
@@ -218,17 +206,17 @@ public class AsyncHttpRequest implements Runnable {
 			cause = new IOException("Unhandled exceptionL :" + e.getMessage());
 			e.printStackTrace();
 		}
-		
+
 		throw cause;
 	}
-	
-	public void cancel(){
+
+	public void cancel() {
 		isCancelled = true;
 	}
 
 	public boolean isCancelled() {
-		
-		if(isCancelled) {
+
+		if (isCancelled) {
 			sendCancelNotification();
 		}
 		return isCancelled;
@@ -236,7 +224,7 @@ public class AsyncHttpRequest implements Runnable {
 
 	private void sendCancelNotification() {
 
-		if(mResponseHandler != null) {
+		if (mResponseHandler != null) {
 			mResponseHandler.sendCancelMessage();
 		}
 	}
@@ -245,6 +233,24 @@ public class AsyncHttpRequest implements Runnable {
 		return isCancelled || isFinished;
 	}
 
+	private String paramsToString(Map<String, Object> params) {
+
+
+			StringBuilder sb = new StringBuilder();
+			for (Entry<String, Object> entry : params.entrySet()) {
+				try {
+					sb.append(URLEncoder.encode(entry.getKey().toString(), "UTF-8"))
+							.append("=")
+							.append(URLEncoder.encode(entry.getValue().toString(), "UTF-8"))
+							.append("&");
+				} catch (UnsupportedEncodingException ex) {
+					ex.printStackTrace();
+				}
+			}
+
+			return sb.toString().substring(0, sb.length() - 1);
+
+	}
 
 	private byte[] readStream(InputStream in) throws IOException {
 		ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -262,5 +268,4 @@ public class AsyncHttpRequest implements Runnable {
 
 	}
 
-	
 }
