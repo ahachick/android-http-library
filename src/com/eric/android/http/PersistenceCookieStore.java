@@ -1,47 +1,48 @@
 package com.eric.android.http;
 
-import android.annotation.TargetApi;
-import android.os.Build;
-import java.net.CookieStore;
-import java.net.HttpCookie;
-import java.net.URI;
-import java.util.List;
+import android.content.Context;
+import android.content.SharedPreferences;
 
-@TargetApi(Build.VERSION_CODES.GINGERBREAD)
-public class PersistenceCookieStore implements CookieStore{
+/**
+ * Copyright (c) 2014
+ * All right reserved.
+ * 
+ * @author ji.jiaxiang
+ *
+ * 2014/04/21 First Release
+ */
+public class PersistenceCookieStore{
 
+	@SuppressWarnings("unused")
 	private static final String TAG = PersistenceCookieStore.class.getSimpleName();
 	private static final String COOKIE_PREFS = "CookiePrefersFile";
+	private static final String COOKIE_KEY = "COOKIE_KEY";
+	private SharedPreferences cookiePrefs;
 	
-
-	@Override
-	public void add(URI uri, HttpCookie cookie) {
+	private String cookieStr;
+	
+	PersistenceCookieStore(Context ctx) {
+		cookiePrefs = ctx.getSharedPreferences(COOKIE_PREFS, Context.MODE_PRIVATE);
 		
 	}
-
-	@Override
-	public List<HttpCookie> get(URI uri) {
-		return null;
+	
+	public String getCookieString() {
+		cookieStr = cookiePrefs.getString(COOKIE_KEY, cookieStr);
+		return cookieStr;
 	}
-
-	@Override
-	public List<HttpCookie> getCookies() {
-		return null;
+	
+	public void addCookieString(String str) {
+		cookieStr = str;
+		SharedPreferences.Editor editor = cookiePrefs.edit();
+		editor.putString(COOKIE_KEY, str);
+		editor.commit();
 	}
-
-	@Override
-	public List<URI> getURIs() {
-		return null;
+	
+	public void clearAll() {
+		SharedPreferences.Editor editor = cookiePrefs.edit();
+		editor.clear();
+		editor.commit();
 	}
-
-	@Override
-	public boolean remove(URI uri, HttpCookie cookie) {
-		return false;
-	}
-
-	@Override
-	public boolean removeAll() {
-		return false;
-	}
+	
 
 }

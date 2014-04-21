@@ -20,6 +20,14 @@ import java.util.Map.Entry;
 
 import com.eric.android.util.Logger;
 
+/**
+ * Copyright (c) 2014 All right reserved.
+ * 
+ * @author ji.jiaxiang
+ * 
+ *         2014/04/21 First Release
+ */
+
 public class AsyncHttpRequest implements Runnable {
 
 	private static final String TAG = AsyncHttpRequest.class.getSimpleName();
@@ -35,7 +43,7 @@ public class AsyncHttpRequest implements Runnable {
 
 	private static final int DEFAULT_RETRY_COUNT = 3;
 	private static final int DEFAULT_SOCKET_TIMEOUT = 15 * 1000;
-	private static final int DEFAULT_READ_TIMEOUT = 60 * 1000;
+	private static final int DEFAULT_READ_TIMEOUT = 20 * 1000;
 
 	private int mSocketTimeout = DEFAULT_SOCKET_TIMEOUT;
 	private int mReadTimeout = DEFAULT_READ_TIMEOUT;
@@ -47,6 +55,9 @@ public class AsyncHttpRequest implements Runnable {
 	private Map<String, List<String>> mHeaders;
 
 	private static final Map<String, List<String>> DEFAULT_HEADERS;
+
+	private boolean mCookieEnable = true;
+	private PersistenceCookieStore mCookieStore;
 
 	static {
 		DEFAULT_HEADERS = new HashMap<String, List<String>>();
@@ -79,6 +90,14 @@ public class AsyncHttpRequest implements Runnable {
 		mRequestParams = requestParams;
 		mHeaders = (headers == null) ? headers : DEFAULT_HEADERS;
 
+	}
+
+	public void setCookieEnable(boolean enable) {
+		mCookieEnable = enable;
+	}
+
+	public void setCookieStore(PersistenceCookieStore store) {
+		mCookieStore = store;
 	}
 
 	@Override
@@ -116,7 +135,8 @@ public class AsyncHttpRequest implements Runnable {
 
 	private void makeRequest() throws IOException {
 		HttpURLConnection conn = null;
-
+		BufferedOutputStream output = null;
+		BufferedInputStream input = null;
 		try {
 			URL url = mUri.toURL();
 			Logger.debug(TAG, "URI:" + url.toString());
@@ -128,6 +148,15 @@ public class AsyncHttpRequest implements Runnable {
 						conn.addRequestProperty(key, value);
 				}
 			}
+			// set "Cookie" to request header
+			if (mCookieEnable && null != mCookieStore) {
+				String cookieStr = mCookieStore.getCookieString();
+				if (cookieStr != null) {
+					Logger.debug(TAG, cookieStr);
+					conn.addRequestProperty("Cookie", cookieStr);
+				}
+			}
+
 			// set socket timeout;
 			conn.setConnectTimeout(mSocketTimeout);
 			// set read timeout
@@ -141,17 +170,33 @@ public class AsyncHttpRequest implements Runnable {
 						: paramsToString(mRequestParams).getBytes();
 				conn.setFixedLengthStreamingMode(requestBody.length);
 
-				BufferedOutputStream output = new BufferedOutputStream(
-						conn.getOutputStream());
+				output = new BufferedOutputStream(conn.getOutputStream());
 				output.write(requestBody);
 				output.flush();
 				output.close();
 			}
-			
+
+			// get "Set-Cookie" property from http response
+			if (null != mCookieStore) {
+				Map<String, List<String>> headers = conn.getHeaderFields();
+				if (null != headers) {
+					StringBuilder sb = new StringBuilder();
+					for (Entry<String, List<String>> entry : headers.entrySet()) {
+						if (entry.getKey() != null && entry.getKey().equals("Set-Cookie")) {
+							for (String value : entry.getValue()) {
+								sb.append(value).append(";");
+							}
+							String cookieStr = sb.substring(0, sb.length() - 1);
+							Logger.debug(TAG, cookieStr);
+							mCookieStore.addCookieString(cookieStr);
+						}
+					}
+				}
+			}
+
 			Logger.debug(TAG, "ContentLength:" + conn.getContentLength());
-			
-			BufferedInputStream input = new BufferedInputStream(
-					conn.getInputStream());
+
+			input = new BufferedInputStream(conn.getInputStream());
 
 			byte[] body = readStream(input);
 
@@ -171,10 +216,22 @@ public class AsyncHttpRequest implements Runnable {
 				conn.disconnect();
 			}
 
-			/*
-			 * if (null != input) { try { input.close(); } catch (Exception e) {
-			 * e.printStackTrace(); } }
-			 */
+			if (null != input) {
+				try {
+					input.close();
+				} catch (Exception e) {
+					e.printStackTrace();
+				}
+			}
+
+			if (null != output) {
+				try {
+					output.close();
+				} catch (Exception e) {
+					e.printStackTrace();
+				}
+			}
+
 		}
 	}
 
@@ -196,6 +253,8 @@ public class AsyncHttpRequest implements Runnable {
 					cause = e;
 				} catch (IOException e) {
 					cause = e;
+				} catch (OutOfMemoryError e) {
+					e.printStackTrace();
 				} finally {
 					if (isCancelled())
 						return;
@@ -235,20 +294,19 @@ public class AsyncHttpRequest implements Runnable {
 
 	private String paramsToString(Map<String, Object> params) {
 
-
-			StringBuilder sb = new StringBuilder();
-			for (Entry<String, Object> entry : params.entrySet()) {
-				try {
-					sb.append(URLEncoder.encode(entry.getKey().toString(), "UTF-8"))
-							.append("=")
-							.append(URLEncoder.encode(entry.getValue().toString(), "UTF-8"))
-							.append("&");
-				} catch (UnsupportedEncodingException ex) {
-					ex.printStackTrace();
-				}
+		StringBuilder sb = new StringBuilder();
+		for (Entry<String, Object> entry : params.entrySet()) {
+			try {
+				sb.append(URLEncoder.encode(entry.getKey().toString(), "UTF-8"))
+						.append("=")
+						.append(URLEncoder.encode(entry.getValue().toString(),
+								"UTF-8")).append("&");
+			} catch (UnsupportedEncodingException ex) {
+				ex.printStackTrace();
 			}
+		}
 
-			return sb.toString().substring(0, sb.length() - 1);
+		return sb.toString().substring(0, sb.length() - 1);
 
 	}
 
